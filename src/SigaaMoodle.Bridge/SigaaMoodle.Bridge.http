@@ -1,0 +1,21 @@
+@SigaaMoodle.Bridge_HostAddress = http://localhost:5056
+
+GET {{SigaaMoodle.Bridge_HostAddress}}/api/health
+Accept: application/json
+
+###
+
+# Executa somente os domínios habilitados. Exige configuração de homologação.
+POST {{SigaaMoodle.Bridge_HostAddress}}/api/sync
+Accept: application/json
+
+###
+
+GET {{SigaaMoodle.Bridge_HostAddress}}/api/sync/status
+Accept: application/json
+
+###
+
+# Habilite Cursos em Sync:EnabledDomains antes deste disparo.
+POST {{SigaaMoodle.Bridge_HostAddress}}/api/sync/cursos
+Accept: application/json

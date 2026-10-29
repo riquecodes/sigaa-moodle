@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SigaaMoodle.Bridge/SigaaMoodle.Bridge.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SigaaMoodle.Bridge.Tests/SigaaMoodle.Bridge.Tests.csproj" />
+  </Folder>
+</Solution>
