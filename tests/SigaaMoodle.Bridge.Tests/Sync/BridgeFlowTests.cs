@@ -24,7 +24,10 @@ public class BridgeFlowTests
         using var transport = new StubHttpHandler((request, ct) =>
         {
             if (request.RequestUri!.AbsolutePath == "/oauth/token")
+            {
+                request.Headers.Authorization.ShouldBeNull();
                 return Task.FromResult(StubHttpHandler.Json("""{"access_token":"test-token","expires_in":3600}"""));
+            }
             request.Headers.Authorization!.Scheme.ShouldBe("Bearer");
             request.Headers.Authorization.Parameter.ShouldBe("test-token");
             return Task.FromResult(StubHttpHandler.Json("""
@@ -46,6 +49,7 @@ public class BridgeFlowTests
         using var sourceHttp = new HttpClient(tokenHandler) { BaseAddress = new Uri("https://sigaa.test/api/v1/") };
         using var destinationHandler = new StubHttpHandler(async (request, ct) =>
         {
+            request.Headers.Authorization.ShouldBeNull();
             if (request.Method == HttpMethod.Get)
             {
                 var id = int.Parse(request.RequestUri!.Segments.Last());
@@ -79,21 +83,6 @@ public class BridgeFlowTests
         posts.ShouldBe(2);
     }
 
-    [Fact]
-    public async Task DisparoGeral_RespeitaDominiosHabilitados_EBloqueiaDesabilitado()
-    {
-        var enabled = Substitute.For<ISyncDomainHandler>();
-        enabled.Domain.Returns(SyncDomain.Alunos);
-        enabled.SyncAsync(null, Arg.Any<CancellationToken>()).Returns(new DomainSyncResult(SyncDomain.Alunos, true, 0, 0, null));
-        var disabled = Substitute.For<ISyncDomainHandler>();
-        disabled.Domain.Returns(SyncDomain.Cursos);
-        using var gate = new SyncExecutionGate();
-        var service = new SyncService([enabled, disabled], new AlwaysFullSyncStateProvider(), new InMemorySyncStatusStore(),
-            NullLogger<SyncService>.Instance, Options.Create(new SyncOptions()), gate);
-        (await service.RunAsync(null, default)).Domains.Count.ShouldBe(1);
-        await disabled.DidNotReceive().SyncAsync(Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>());
-        await Should.ThrowAsync<ArgumentException>(() => service.RunAsync([SyncDomain.Cursos], default));
-    }
 
     [Fact]
     public async Task ExecucoesConcorrentes_CompartilhamGateEntreInstancias()

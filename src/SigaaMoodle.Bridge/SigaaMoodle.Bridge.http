@@ -13,9 +13,3 @@ Accept: application/json
 
 GET {{SigaaMoodle.Bridge_HostAddress}}/api/sync/status
 Accept: application/json
-
-###
-
-# Habilite Cursos em Sync:EnabledDomains antes deste disparo.
-POST {{SigaaMoodle.Bridge_HostAddress}}/api/sync/cursos
-Accept: application/json

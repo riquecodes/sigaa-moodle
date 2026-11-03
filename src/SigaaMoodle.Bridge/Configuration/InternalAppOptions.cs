@@ -15,8 +15,5 @@ public sealed class InternalAppOptions
     public sealed class DomainRoutes
     {
         public string Alunos { get; set; } = string.Empty;
-        public string Matriculas { get; set; } = string.Empty;
-        public string Cursos { get; set; } = string.Empty;
-        public string Notas { get; set; } = string.Empty;
     }
 }

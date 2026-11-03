@@ -11,7 +11,6 @@ public sealed class SigaaOptions
     public string ClientSecret { get; set; } = string.Empty;
     public string Scope { get; set; } = string.Empty;
     public int? Unidade { get; set; }
-    public string PeriodoLetivo { get; set; } = string.Empty;
     public int PageSize { get; set; } = 100;
     public int MaxPages { get; set; } = 10000;
 
@@ -21,8 +20,5 @@ public sealed class SigaaOptions
     public sealed class DomainRoutes
     {
         public string Alunos { get; set; } = string.Empty;
-        public string Matriculas { get; set; } = string.Empty;
-        public string Cursos { get; set; } = string.Empty;
-        public string Notas { get; set; } = string.Empty;
     }
 }

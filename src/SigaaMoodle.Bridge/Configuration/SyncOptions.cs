@@ -18,4 +18,7 @@ public sealed class SyncOptions
 
     // Domínios habilitados.
     public string[] EnabledDomains { get; set; } = ["Alunos"];
+
+    // Arquivo do último resultado, relativo à raiz da aplicação. A pasta precisa ser persistente no servidor.
+    public string StatusFilePath { get; set; } = "data/sync-status.json";
 }

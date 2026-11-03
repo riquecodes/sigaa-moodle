@@ -58,35 +58,6 @@ public sealed class InternalAppClient(HttpClient httpClient, IOptions<InternalAp
         }
     }
 
-    public Task SendMatriculasAsync(IReadOnlyList<MatriculaPayload> payload, CancellationToken ct)
-        => throw new NotSupportedException("A API local não possui contrato de matrículas. Não habilite esse domínio sem implementar o destino.");
-
-    public async Task SendCursosAsync(IReadOnlyList<CursoPayload> payload, CancellationToken ct)
-    {
-        var route = ValidateRoute(_options.Routes.Cursos);
-        var courses = payload.Select(p => (LocalId: CourseId(p.IdCursoSigaa), p.Nome)).ToList();
-        if (courses.Any(c => string.IsNullOrWhiteSpace(c.Nome))) throw new InvalidOperationException("Curso SIGAA sem nome.");
-        if (courses.GroupBy(c => c.LocalId).Any(g => g.Select(c => c.Nome).Distinct().Count() > 1))
-            throw new InvalidOperationException("CourseMap associa cursos com nomes diferentes ao mesmo ID local.");
-        foreach (var course in courses.Distinct())
-        {
-            var courseRoute = $"{route}/{course.LocalId.ToString(CultureInfo.InvariantCulture)}";
-            using var existing = await httpClient.GetAsync(courseRoute, ct);
-            existing.EnsureSuccessStatusCode();
-            var current = await existing.Content.ReadFromJsonAsync<LocalCourse>(ct)
-                ?? throw new InvalidOperationException("Consulta de curso retornou resposta vazia.");
-            if (current.CourseName == course.Nome) continue;
-            // Sem equivalentes documentados para coordenação/duração; preservar valores locais.
-            using var updated = await httpClient.PutAsJsonAsync(courseRoute, new
-            {
-                CourseName = course.Nome, UpdatedAtUtc = DateTime.UtcNow
-            }, ct);
-            updated.EnsureSuccessStatusCode();
-        }
-    }
-
-    public Task SendNotasAsync(IReadOnlyList<NotaPayload> payload, CancellationToken ct)
-        => throw new NotSupportedException("A API local não possui contrato de notas. Não habilite esse domínio sem implementar o destino.");
 
     private int CourseId(int? sigaaId)
     {
@@ -106,5 +77,4 @@ public sealed class InternalAppClient(HttpClient httpClient, IOptions<InternalAp
     }
 
     private sealed record LocalUser(int EnrollmentNumber, int CourseId, int UserType, string CompleteName);
-    private sealed record LocalCourse(string CourseName);
 }

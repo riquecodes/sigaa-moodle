@@ -6,6 +6,9 @@
 # dotenv files
 .env
 
+# Status local da sincronização.
+data/
+
 # Documentação e especificações mantidas fora do repositório.
 .sil/
 docs/

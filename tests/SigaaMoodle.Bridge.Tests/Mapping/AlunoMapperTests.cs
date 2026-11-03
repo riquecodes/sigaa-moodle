@@ -7,7 +7,7 @@ namespace SigaaMoodle.Bridge.Tests.Mapping;
 public class AlunoMapperTests
 {
     [Fact]
-    public void AlunoEspecialSemCursos_NaoInventaMatricula()
+    public void AlunoSemVinculo_NaoGeraPayload()
     {
         AlunoMapper.ToPayloads(new SigaaAluno("00000000000", "Maria", null, null)).ShouldBeEmpty();
     }

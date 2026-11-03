@@ -12,9 +12,8 @@ public class SigaaClientTests
 {
     private static SigaaOptions Settings() => new()
     {
-        Unidade = 20, PeriodoLetivo = "2026/0", PageSize = 1,
-        Routes = new() { Alunos = "sig/sigaa/alunos/paginate", Cursos = "sig/sigaa/cursos",
-            Matriculas = "sig/sigaa/matriculados", Notas = "sig/sigaa/alunos/desempenho" }
+        Unidade = 20, PageSize = 1,
+        Routes = new() { Alunos = "sig/sigaa/alunos/paginate" }
     };
 
     [Fact]
@@ -72,50 +71,32 @@ public class SigaaClientTests
     }
 
     [Fact]
-    public async Task MatriculasENotas_MapeiamDisciplinasSemInventarNotaZero()
+    public async Task Alunos_UsaRotaConfigurada()
     {
         using var handler = new StubHttpHandler((request, _) =>
         {
-            QueryHelpers.ParseQuery(request.RequestUri!.Query)["periodo_letivo"].ToString().ShouldBe("2026/0");
+            request.RequestUri!.AbsolutePath.ShouldBe("/api/v1/sig/sigaa/alunos/paginate");
             return Task.FromResult(StubHttpHandler.Json("""
-                [{"matricula":"2023001","disciplinas":[
-                  {"id_turma":123,"situacao_matricula":"MATRICULADO","media_final":8.2},
-                  {"id_turma":124,"situacao_matricula":"MATRICULADO","media_final":null}]}]
+                {"current_page":1,"last_page":1,"data":[
+                  {"login":"00000000000","nome_completo":"Maria","cursos":[
+                    {"matricula":"2023001","id_curso":42}]}]}
                 """));
         });
         using var http = new HttpClient(handler) { BaseAddress = new Uri("https://sigaa.test/api/v1/") };
-        var client = new SigaaClient(http, Options.Create(Settings()));
-        var enrollments = (await client.GetMatriculasAsync(null, default)).SelectMany(MatriculaMapper.ToPayloads).ToList();
-        enrollments.Count.ShouldBe(2);
-        enrollments[0].CodigoTurma.ShouldBe("123");
-        var grades = (await client.GetNotasAsync(null, default)).SelectMany(NotaMapper.ToPayloads).ToList();
-        grades.Count.ShouldBe(1);
-        grades[0].Valor.ShouldBe(8.2m);
+
+        var alunos = await new SigaaClient(http, Options.Create(Settings())).GetAlunosAsync(null, default);
+
+        alunos.Single().Cursos!.Single().Matricula.ShouldBe("2023001");
     }
 
-    [Fact]
-    public async Task Cursos_UsaContratoRealSemForcarPaginacaoAmbigua()
-    {
-        using var handler = new StubHttpHandler((request, _) =>
-        {
-            request.RequestUri!.Query.ShouldNotContain("per_page");
-            return Task.FromResult(StubHttpHandler.Json("""[{"id_curso":42,"codigo":"TEC","curso":"Informática","modalidade_educacao":null}]"""));
-        });
-        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://sigaa.test/api/v1/") };
-        var result = await new SigaaClient(http, Options.Create(Settings())).GetCursosAsync(null, default);
-        result.Single().Id.ShouldBe(42);
-        CursoMapper.ToPayload(result.Single()).Nome.ShouldBe("Informática");
-    }
 
     [Fact]
-    public async Task RejeitaDeltaEPeriodoAusenteAntesDeEnviar()
+    public async Task RejeitaDeltaAntesDeEnviar()
     {
         using var handler = new StubHttpHandler((_, _) => throw new Exception("Não deveria acessar rede."));
         using var http = new HttpClient(handler);
-        var settings = Settings();
-        settings.PeriodoLetivo = "";
-        var client = new SigaaClient(http, Options.Create(settings));
+        var client = new SigaaClient(http, Options.Create(Settings()));
+
         await Should.ThrowAsync<NotSupportedException>(() => client.GetAlunosAsync(DateTimeOffset.UtcNow, default));
-        await Should.ThrowAsync<InvalidOperationException>(() => client.GetNotasAsync(null, default));
     }
 }

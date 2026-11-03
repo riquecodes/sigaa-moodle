@@ -18,8 +18,9 @@ builder.Services.Configure<InternalAppOptions>(builder.Configuration.GetSection(
 builder.Services.AddOptions<SyncOptions>().Bind(builder.Configuration.GetSection(SyncOptions.SectionName))
     .Validate(o => !o.DeltaEnabled, "DeltaEnabled não é suportado pela API documentada.")
     .Validate(o => o.EnabledDomains.Length > 0 && o.EnabledDomains.All(d =>
-        d.Equals("Alunos", StringComparison.OrdinalIgnoreCase) || d.Equals("Cursos", StringComparison.OrdinalIgnoreCase)),
-        "EnabledDomains aceita somente Alunos e Cursos; destino sem contratos de notas/matrículas.")
+        d.Equals("Alunos", StringComparison.OrdinalIgnoreCase)),
+        "EnabledDomains aceita somente Alunos.")
+    .Validate(o => !string.IsNullOrWhiteSpace(o.StatusFilePath), "StatusFilePath é obrigatório.")
     .ValidateOnStart();
 
 // OAuth2 token (SIGAA)
@@ -47,14 +48,11 @@ builder.Services.AddHttpClient<IInternalAppClient, InternalAppClient>((sp, clien
 .AddStandardResilienceHandler(options => options.Retry.DisableForUnsafeHttpMethods());
 
 // Sync core
-builder.Services.AddSingleton<ISyncStatusStore, InMemorySyncStatusStore>();
+builder.Services.AddSingleton<ISyncStatusStore, FileSyncStatusStore>();
 builder.Services.AddSingleton<ISyncStateProvider, AlwaysFullSyncStateProvider>();
 builder.Services.AddSingleton<SyncExecutionGate>();
 builder.Services.AddScoped<ISyncService, SyncService>();
 builder.Services.AddScoped<ISyncDomainHandler, AlunosSyncHandler>();
-builder.Services.AddScoped<ISyncDomainHandler, MatriculasSyncHandler>();
-builder.Services.AddScoped<ISyncDomainHandler, CursosSyncHandler>();
-builder.Services.AddScoped<ISyncDomainHandler, NotasSyncHandler>();
 
 // Worker agendado (madrugada)
 builder.Services.AddHostedService<ScheduledSyncWorker>();

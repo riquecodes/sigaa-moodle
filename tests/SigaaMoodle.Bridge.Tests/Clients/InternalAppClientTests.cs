@@ -14,7 +14,7 @@ public class InternalAppClientTests
     private static InternalAppOptions Settings() => new()
     {
         StudentUserType = 3, CourseMap = new() { [42] = 7 },
-        Routes = new() { Alunos = "api/User", Cursos = "api/Course" }
+        Routes = new() { Alunos = "api/User" }
     };
 
     private static AlunoPayload Student(string enrollment = "2023001") => new(enrollment, "Maria", null, 42);
@@ -26,6 +26,7 @@ public class InternalAppClientTests
         var posts = 0;
         using var handler = new StubHttpHandler(async (request, ct) =>
         {
+            request.Headers.Authorization.ShouldBeNull();
             if (request.Method == HttpMethod.Get)
             {
                 request.RequestUri!.AbsolutePath.ShouldBe("/api/User/2023001");
@@ -58,6 +59,7 @@ public class InternalAppClientTests
         var puts = 0;
         using var handler = new StubHttpHandler(async (request, ct) =>
         {
+            request.Headers.Authorization.ShouldBeNull();
             if (request.Method == HttpMethod.Get)
                 return StubHttpHandler.Json("""{"enrollmentNumber":2023001,"courseId":7,"userType":3,"completeName":"Nome antigo","lockNumber":9,"licensePlate":"XYZ","isActive":false}""");
             request.Method.ShouldBe(HttpMethod.Put);
@@ -80,7 +82,7 @@ public class InternalAppClientTests
     [InlineData("002023001")]
     [InlineData("abc")]
     [InlineData("0")]
-    public async Task MatriculaIncompativel_NaoEscreveNemTrunca(string enrollment)
+    public async Task IdentificadorIncompativel_NaoEscreveNemTrunca(string enrollment)
     {
         using var handler = new StubHttpHandler((_, _) => throw new Exception("Não deveria acessar rede."));
         using var http = new HttpClient(handler) { BaseAddress = new Uri("https://local.test/") };
@@ -89,7 +91,7 @@ public class InternalAppClientTests
     }
 
     [Fact]
-    public async Task CursoSemCorrespondencia_NaoEnviaLoteParcial()
+    public async Task AlunoComVinculoSemCorrespondencia_NaoEnviaLoteParcial()
     {
         using var handler = new StubHttpHandler((_, _) => throw new Exception("Não deveria acessar rede."));
         using var http = new HttpClient(handler) { BaseAddress = new Uri("https://local.test/") };
@@ -103,6 +105,7 @@ public class InternalAppClientTests
         var calls = 0;
         using var handler = new StubHttpHandler((request, _) =>
         {
+            request.Headers.Authorization.ShouldBeNull();
             request.Method.ShouldBe(HttpMethod.Get);
             calls++;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError));
@@ -113,32 +116,4 @@ public class InternalAppClientTests
         calls.ShouldBe(1);
     }
 
-    [Fact]
-    public async Task Cursos_AtualizaSomenteNomeDoIdMapeado()
-    {
-        var puts = 0;
-        using var handler = new StubHttpHandler(async (request, ct) =>
-        {
-            request.RequestUri!.AbsolutePath.ShouldBe("/api/Course/7");
-            if (request.Method == HttpMethod.Get) return StubHttpHandler.Json("""{"courseName":"Nome antigo"}""");
-            request.Method.ShouldBe(HttpMethod.Put);
-            using var document = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
-            document.RootElement.GetProperty("courseName").GetString().ShouldBe("Informática");
-            document.RootElement.TryGetProperty("durationInSemester", out _).ShouldBeFalse();
-            puts++;
-            return new HttpResponseMessage(HttpStatusCode.NoContent);
-        });
-        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://local.test/") };
-        await new InternalAppClient(http, Options.Create(Settings())).SendCursosAsync([new("TEC", "Informática", 42)], default);
-        puts.ShouldBe(1);
-    }
-
-    [Fact]
-    public void DominiosSemDestino_NaoInventamRotas()
-    {
-        using var http = new HttpClient();
-        var client = new InternalAppClient(http, Options.Create(Settings()));
-        Should.Throw<NotSupportedException>(() => client.SendNotasAsync([], default));
-        Should.Throw<NotSupportedException>(() => client.SendMatriculasAsync([], default));
-    }
 }

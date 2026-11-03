@@ -14,19 +14,11 @@ public sealed class SigaaClient(HttpClient httpClient, IOptions<SigaaOptions> op
     private readonly SigaaOptions _options = options.Value;
 
     public Task<IReadOnlyList<SigaaAluno>> GetAlunosAsync(DateTimeOffset? since, CancellationToken ct)
-        => GetAsync<SigaaAluno>(_options.Routes.Alunos, since, paginated: true, period: false, ct);
+        => GetAsync<SigaaAluno>(_options.Routes.Alunos, since, paginated: true, ct);
 
-    public Task<IReadOnlyList<SigaaMatricula>> GetMatriculasAsync(DateTimeOffset? since, CancellationToken ct)
-        => GetAsync<SigaaMatricula>(_options.Routes.Matriculas, since, paginated: false, period: true, ct);
-
-    public Task<IReadOnlyList<SigaaCurso>> GetCursosAsync(DateTimeOffset? since, CancellationToken ct)
-        => GetAsync<SigaaCurso>(_options.Routes.Cursos, since, paginated: false, period: false, ct);
-
-    public Task<IReadOnlyList<SigaaNota>> GetNotasAsync(DateTimeOffset? since, CancellationToken ct)
-        => GetAsync<SigaaNota>(_options.Routes.Notas, since, paginated: false, period: true, ct);
 
     private async Task<IReadOnlyList<T>> GetAsync<T>(
-        string route, DateTimeOffset? since, bool paginated, bool period, CancellationToken ct)
+        string route, DateTimeOffset? since, bool paginated, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(route))
             throw new InvalidOperationException("Rota do SIGAA não configurada (A DEFINIR).");
@@ -38,15 +30,12 @@ public sealed class SigaaClient(HttpClient httpClient, IOptions<SigaaOptions> op
             throw new NotSupportedException("O SIGAA documentado não suporta sincronização incremental (since).");
         if (_options.PageSize <= 0 || _options.MaxPages <= 0)
             throw new InvalidOperationException("Sigaa:PageSize e Sigaa:MaxPages devem ser positivos.");
-        if (period && !System.Text.RegularExpressions.Regex.IsMatch(_options.PeriodoLetivo, @"^\d{4}/[012]$"))
-            throw new InvalidOperationException("Configure Sigaa:PeriodoLetivo como YYYY/0, YYYY/1 ou YYYY/2.");
         if (route.StartsWith('/') || Uri.TryCreate(route, UriKind.Absolute, out _) || route.Contains('?'))
             throw new InvalidOperationException("Rotas SIGAA devem ser relativas, sem barra inicial ou query string.");
 
         var query = new Dictionary<string, string?>();
         if (_options.Unidade is { } unidade)
             query["unidade"] = unidade.ToString(CultureInfo.InvariantCulture);
-        if (period) query["periodo_letivo"] = _options.PeriodoLetivo;
         if (paginated) query["per_page"] = _options.PageSize.ToString(CultureInfo.InvariantCulture);
 
         var all = new List<T>();
