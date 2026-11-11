@@ -4,5 +4,5 @@ namespace SigaaMoodle.Bridge.Clients.Internal;
 
 public interface IInternalAppClient
 {
-    Task SendAlunosAsync(IReadOnlyList<AlunoPayload> payload, CancellationToken ct);
+    Task<SendAlunosResult> SendAlunosAsync(IReadOnlyList<AlunoPayload> payload, CancellationToken ct);
 }

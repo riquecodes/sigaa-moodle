@@ -48,13 +48,17 @@ public sealed class SyncService(
                 results.Add(result);
                 if (result.Success)
                     await stateProvider.SetLastSyncedAtAsync(handler.Domain, startedAt, ct);
-                logger.LogInformation("Sync {Domain}: lidos={Read} enviados={Sent}",
-                    handler.Domain, result.Read, result.Sent);
+                logger.LogInformation(
+                    "Sync {Domain}: lidos={Read} criados={Created} atualizados={Updated} inalterados={Unchanged} ignorados={Skipped} recusados={Failed}",
+                    handler.Domain, result.Read, result.Created, result.Updated, result.Unchanged, result.Skipped, result.Failed);
+                foreach (var error in result.Errors)
+                    logger.LogWarning("Registro recusado em {Domain}: matrícula {Matricula} — {Motivo}",
+                        handler.Domain, error.Matricula, error.Motivo);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogError(ex, "Falha ao sincronizar domínio {Domain}", handler.Domain);
-                results.Add(new DomainSyncResult(handler.Domain, false, 0, 0, ex.Message));
+                results.Add(DomainSyncResult.Failure(handler.Domain, ex.Message));
             }
         }
 

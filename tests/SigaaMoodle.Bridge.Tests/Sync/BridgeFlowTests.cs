@@ -76,8 +76,10 @@ public class BridgeFlowTests
         {
             var result = await service.RunAsync(null, default);
             result.AllSucceeded.ShouldBeTrue();
-            result.Domains.Single().Read.ShouldBe(2);
-            result.Domains.Single().Sent.ShouldBe(2);
+            var domain = result.Domains.Single();
+            domain.Read.ShouldBe(2);
+            domain.Created.ShouldBe(run == 0 ? 2 : 0);
+            domain.Unchanged.ShouldBe(run == 0 ? 0 : 2);
         }
         users.Count.ShouldBe(2);
         posts.ShouldBe(2);
@@ -99,7 +101,7 @@ public class BridgeFlowTests
                 entered.SetResult();
                 await release.Task;
             }
-            return new DomainSyncResult(SyncDomain.Alunos, true, 0, 0, null);
+            return new DomainSyncResult(SyncDomain.Alunos, true, 0, 0, 0, 0, 0, [], null);
         });
         using var gate = new SyncExecutionGate();
         SyncService Service() => new([handler], new AlwaysFullSyncStateProvider(), new InMemorySyncStatusStore(),

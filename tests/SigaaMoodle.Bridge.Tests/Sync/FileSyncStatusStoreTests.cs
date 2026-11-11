@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
 using SigaaMoodle.Bridge.Configuration;
+using SigaaMoodle.Bridge.Contracts.Internal;
 using SigaaMoodle.Bridge.Sync;
 
 namespace SigaaMoodle.Bridge.Tests.Sync;
@@ -15,26 +16,29 @@ public sealed class FileSyncStatusStoreTests : IDisposable
     [Fact]
     public void Set_DeveManterResultadoAposReinicio()
     {
-        // Arrange
         var result = new SyncRunResult(
             new DateTimeOffset(2026, 11, 3, 3, 0, 0, TimeSpan.FromHours(-3)),
             new DateTimeOffset(2026, 11, 3, 3, 2, 30, TimeSpan.FromHours(-3)),
-            [new DomainSyncResult(SyncDomain.Alunos, Success: true, Read: 120, Sent: 118, Error: null)]);
+            [new DomainSyncResult(SyncDomain.Alunos, Success: false, Read: 120, Created: 100, Updated: 10,
+                Unchanged: 7, Skipped: 2, Errors: [new RecordError("2024300001", "Ana Souza", "Curso sem mapeamento.")],
+                Error: "1 registro(s) recusado(s); os demais foram sincronizados.")]);
 
-        // Act
         Store().Set(result);
         var reloaded = Store().Last;
 
-        // Assert
         reloaded.ShouldNotBeNull();
         reloaded.StartedAt.ShouldBe(result.StartedAt);
         reloaded.FinishedAt.ShouldBe(result.FinishedAt);
         var domain = reloaded.Domains.Single();
         domain.Domain.ShouldBe(SyncDomain.Alunos);
-        domain.Success.ShouldBeTrue();
+        domain.Success.ShouldBeFalse();
         domain.Read.ShouldBe(120);
-        domain.Sent.ShouldBe(118);
-        domain.Error.ShouldBeNull();
+        domain.Created.ShouldBe(100);
+        domain.Updated.ShouldBe(10);
+        domain.Unchanged.ShouldBe(7);
+        domain.Skipped.ShouldBe(2);
+        domain.Errors.Single().ShouldBe(new RecordError("2024300001", "Ana Souza", "Curso sem mapeamento."));
+        domain.Error.ShouldNotBeNull();
     }
 
     [Fact]
@@ -46,12 +50,10 @@ public sealed class FileSyncStatusStoreTests : IDisposable
     [Fact]
     public void Last_QuandoArquivoCorrompido_DeveSerNulo()
     {
-        // Arrange
         var path = Path.Combine(_root, "data", "sync-status.json");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, "{ invalido");
 
-        // Act + Assert
         Store().Last.ShouldBeNull();
     }
 

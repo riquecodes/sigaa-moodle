@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Shouldly;
@@ -14,10 +13,18 @@ public class InternalAppClientTests
     private static InternalAppOptions Settings() => new()
     {
         StudentUserType = 3, CourseMap = new() { [42] = 7 },
+        InactiveStatuses = ["CANCELADO", "CONCLUÍDO"],
         Routes = new() { Alunos = "api/User" }
     };
 
-    private static AlunoPayload Student(string enrollment = "2023001") => new(enrollment, "Maria", null, 42);
+    private static AlunoPayload Student(string enrollment = "2023001", string? status = null)
+        => new(enrollment, "Maria", null, 42, status);
+
+    private static InternalAppClient Client(HttpMessageHandler handler)
+        => new(new HttpClient(handler) { BaseAddress = new Uri("https://local.test/") }, Options.Create(Settings()));
+
+    private static HttpResponseMessage Existing(string name = "Maria", bool active = true) => StubHttpHandler.Json(
+        $$"""{"enrollmentNumber":2023001,"courseId":7,"userType":3,"completeName":"{{name}}","lockNumber":9,"licensePlate":"XYZ","isActive":{{(active ? "true" : "false")}}}""");
 
     [Fact]
     public async Task Reenvio_CriaSomenteUmaVez_ComContratoDaApiLocal()
@@ -30,8 +37,7 @@ public class InternalAppClientTests
             if (request.Method == HttpMethod.Get)
             {
                 request.RequestUri!.AbsolutePath.ShouldBe("/api/User/2023001");
-                return exists ? StubHttpHandler.Json("""{"enrollmentNumber":2023001,"courseId":7,"userType":3,"completeName":"Maria","lockNumber":9,"licensePlate":"XYZ","isActive":false}""")
-                    : new HttpResponseMessage(HttpStatusCode.NotFound);
+                return exists ? Existing() : new HttpResponseMessage(HttpStatusCode.NotFound);
             }
             request.Method.ShouldBe(HttpMethod.Post);
             request.RequestUri!.AbsolutePath.ShouldBe("/api/User");
@@ -46,22 +52,26 @@ public class InternalAppClientTests
             exists = true;
             return new HttpResponseMessage(HttpStatusCode.Created);
         });
-        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://local.test/") };
-        var client = new InternalAppClient(http, Options.Create(Settings()));
-        await client.SendAlunosAsync([Student()], default);
-        await client.SendAlunosAsync([Student()], default);
+        var client = Client(handler);
+
+        var first = await client.SendAlunosAsync([Student(status: "ATIVO")], default);
+        var second = await client.SendAlunosAsync([Student(status: "ATIVO")], default);
+
         posts.ShouldBe(1);
+        first.Created.ShouldBe(1);
+        second.Unchanged.ShouldBe(1);
+        second.Errors.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task Atualizacao_PreservaCamposLocais_EUsaPutIndividual()
+    public async Task Atualizacao_SemStatus_PreservaCamposLocaisEEstadoAtivo()
     {
         var puts = 0;
         using var handler = new StubHttpHandler(async (request, ct) =>
         {
             request.Headers.Authorization.ShouldBeNull();
             if (request.Method == HttpMethod.Get)
-                return StubHttpHandler.Json("""{"enrollmentNumber":2023001,"courseId":7,"userType":3,"completeName":"Nome antigo","lockNumber":9,"licensePlate":"XYZ","isActive":false}""");
+                return Existing("Nome antigo", active: false);
             request.Method.ShouldBe(HttpMethod.Put);
             request.RequestUri!.AbsolutePath.ShouldBe("/api/User/2023001");
             using var document = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
@@ -72,9 +82,67 @@ public class InternalAppClientTests
             puts++;
             return new HttpResponseMessage(HttpStatusCode.NoContent);
         });
-        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://local.test/") };
-        await new InternalAppClient(http, Options.Create(Settings())).SendAlunosAsync([Student()], default);
+
+        var result = await Client(handler).SendAlunosAsync([Student()], default);
+
         puts.ShouldBe(1);
+        result.Updated.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("CANCELADO")]
+    [InlineData("concluido")]
+    public async Task StatusInativo_DesativaUsuarioExistente(string status)
+    {
+        bool? sentActive = null;
+        using var handler = new StubHttpHandler(async (request, ct) =>
+        {
+            if (request.Method == HttpMethod.Get)
+                return Existing();
+            request.Method.ShouldBe(HttpMethod.Put);
+            using var document = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+            sentActive = document.RootElement.GetProperty("isActive").GetBoolean();
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
+        });
+
+        var result = await Client(handler).SendAlunosAsync([Student(status: status)], default);
+
+        sentActive.ShouldBe(false);
+        result.Updated.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task StatusAtivo_ReativaUsuarioInativo()
+    {
+        bool? sentActive = null;
+        using var handler = new StubHttpHandler(async (request, ct) =>
+        {
+            if (request.Method == HttpMethod.Get)
+                return Existing(active: false);
+            using var document = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+            sentActive = document.RootElement.GetProperty("isActive").GetBoolean();
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
+        });
+
+        await Client(handler).SendAlunosAsync([Student(status: "ATIVO")], default);
+
+        sentActive.ShouldBe(true);
+    }
+
+    [Fact]
+    public async Task AlunoNovoJaInativo_NaoECriado()
+    {
+        var posts = 0;
+        using var handler = new StubHttpHandler((request, _) =>
+        {
+            if (request.Method == HttpMethod.Post) posts++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        });
+
+        var result = await Client(handler).SendAlunosAsync([Student(status: "CANCELADO")], default);
+
+        posts.ShouldBe(0);
+        result.Skipped.ShouldBe(1);
     }
 
     [Theory]
@@ -82,38 +150,72 @@ public class InternalAppClientTests
     [InlineData("002023001")]
     [InlineData("abc")]
     [InlineData("0")]
-    public async Task IdentificadorIncompativel_NaoEscreveNemTrunca(string enrollment)
+    public async Task MatriculaIncompativel_RecusaSoORegistroENaoTrunca(string enrollment)
     {
-        using var handler = new StubHttpHandler((_, _) => throw new Exception("Não deveria acessar rede."));
-        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://local.test/") };
-        await Should.ThrowAsync<InvalidOperationException>(() => new InternalAppClient(http, Options.Create(Settings()))
-            .SendAlunosAsync([Student(), Student(enrollment)], default));
+        var requested = new List<string>();
+        using var handler = new StubHttpHandler((request, _) =>
+        {
+            requested.Add(request.RequestUri!.AbsolutePath);
+            return Task.FromResult(request.Method == HttpMethod.Get
+                ? new HttpResponseMessage(HttpStatusCode.NotFound) : new HttpResponseMessage(HttpStatusCode.Created));
+        });
+
+        var result = await Client(handler).SendAlunosAsync([Student(), Student(enrollment)], default);
+
+        result.Created.ShouldBe(1);
+        result.Errors.Single().Matricula.ShouldBe(enrollment);
+        requested.ShouldAllBe(path => path == "/api/User/2023001" || path == "/api/User");
     }
 
     [Fact]
-    public async Task AlunoComVinculoSemCorrespondencia_NaoEnviaLoteParcial()
+    public async Task CursoSemCorrespondencia_RecusaSoORegistro()
     {
-        using var handler = new StubHttpHandler((_, _) => throw new Exception("Não deveria acessar rede."));
-        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://local.test/") };
-        await Should.ThrowAsync<InvalidOperationException>(() => new InternalAppClient(http, Options.Create(Settings()))
-            .SendAlunosAsync([Student(), Student("2023002") with { IdCursoSigaa = 99 }], default));
+        using var handler = new StubHttpHandler((request, _) => Task.FromResult(request.Method == HttpMethod.Get
+            ? new HttpResponseMessage(HttpStatusCode.NotFound) : new HttpResponseMessage(HttpStatusCode.Created)));
+
+        var result = await Client(handler).SendAlunosAsync(
+            [Student(), Student("2023002") with { IdCursoSigaa = 99 }], default);
+
+        result.Created.ShouldBe(1);
+        var error = result.Errors.Single();
+        error.Matricula.ShouldBe("2023002");
+        error.Nome.ShouldBe("Maria");
+        error.Motivo.ShouldContain("99");
     }
 
     [Fact]
-    public async Task FalhaNaConsulta_NaoTentaCriarUsuario()
+    public async Task MatriculaRepetidaComDadosDivergentes_RecusaAmbasSemAcessarRede()
+    {
+        using var handler = new StubHttpHandler((_, _) => throw new Exception("Não deveria acessar rede."));
+
+        var result = await Client(handler).SendAlunosAsync(
+            [Student(), Student() with { Nome = "Outra pessoa" }], default);
+
+        result.Errors.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task ErroHttpNaConsulta_RecusaORegistroSemTentarCriar()
     {
         var calls = 0;
         using var handler = new StubHttpHandler((request, _) =>
         {
-            request.Headers.Authorization.ShouldBeNull();
             request.Method.ShouldBe(HttpMethod.Get);
             calls++;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError));
         });
-        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://local.test/") };
-        await Should.ThrowAsync<HttpRequestException>(() => new InternalAppClient(http, Options.Create(Settings()))
-            .SendAlunosAsync([Student()], default));
+
+        var result = await Client(handler).SendAlunosAsync([Student()], default);
+
         calls.ShouldBe(1);
+        result.Errors.Single().Motivo.ShouldContain("500");
     }
 
+    [Fact]
+    public async Task ApiLocalIndisponivel_InterrompeAExecucao()
+    {
+        using var handler = new StubHttpHandler((_, _) => throw new HttpRequestException("Conexão recusada."));
+
+        await Should.ThrowAsync<HttpRequestException>(() => Client(handler).SendAlunosAsync([Student()], default));
+    }
 }
